@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EIDM Tools - Document Guide Coordinate Tool</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 24px;
+      color: #222;
+      background: #f7f8fb;
+    }
+
+    h1 {
+      margin-bottom: 12px;
+      font-size: 22px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 18px;
+      align-items: center;
+    }
+
+    button,
+    input[type="file"] {
+      font-size: 14px;
+    }
+
+    .instructions {
+      margin-bottom: 12px;
+      background: white;
+      border: 1px solid #d7dbe7;
+      padding: 14px;
+      border-radius: 8px;
+    }
+
+    .tool-body {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: 1fr;
+    }
+
+    .preview {
+      background: white;
+      border: 1px solid #d7dbe7;
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 320px;
+      position: relative;
+    }
+
+    .preview img {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      user-select: none;
+    }
+
+    .preview .overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .preview .point {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: rgba(255, 82, 82, 0.9);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      box-shadow: 0 0 0 2px rgba(255, 82, 82, 0.2);
+    }
+
+    .preview .rect {
+      position: absolute;
+      border: 2px dashed rgba(255, 82, 82, 0.9);
+      pointer-events: none;
+      background: rgba(255, 82, 82, 0.12);
+    }
+
+    .output {
+      background: white;
+      border: 1px solid #d7dbe7;
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .output pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .status {
+      margin-top: 8px;
+      color: #555;
+      font-size: 13px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Document Guide Coordinate Picker</h1>
+  <div class="instructions">
+    <p>Upload a document sample image, then click the top-left and bottom-right corners of the field area. The tool will
+      output normalized coordinates for the rectangle in the format:</p>
+    <pre>[x, y, width, height]</pre>
+    <p>Use these values directly in your document template config.</p>
+  </div>
+
+  <div class="toolbar">
+    <input id="imageInput" type="file" accept="image/*" />
+    <button id="resetButton" type="button" disabled>Reset selection</button>
+    <button id="copyButton" type="button" disabled>Copy coords</button>
+  </div>
+
+  <div class="tool-body">
+    <div class="preview" id="previewArea">
+      <div class="overlay" id="overlay"></div>
+    </div>
+
+    <div class="output">
+      <strong>Coordinates:</strong>
+      <pre id="coordsOutput">No selection yet.</pre>
+      <div class="status" id="statusText">Upload an image to start.</div>
+    </div>
+  </div>
+
+  <script>
+    const imageInput = document.getElementById('imageInput');
+    const previewArea = document.getElementById('previewArea');
+    const overlay = document.getElementById('overlay');
+    const coordsOutput = document.getElementById('coordsOutput');
+    const statusText = document.getElementById('statusText');
+    const copyButton = document.getElementById('copyButton');
+    const resetButton = document.getElementById('resetButton');
+
+    let imgEl = null;
+    let firstPoint = null;
+    let secondPoint = null;
+
+    function setStatus(message) {
+      statusText.textContent = message;
+    }
+
+    function updateOutput() {
+      if (!firstPoint || !secondPoint) {
+        coordsOutput.textContent = 'No complete selection yet.';
+        return;
+      }
+      const left = Math.min(firstPoint.x, secondPoint.x);
+      const top = Math.min(firstPoint.y, secondPoint.y);
+      const right = Math.max(firstPoint.x, secondPoint.x);
+      const bottom = Math.max(firstPoint.y, secondPoint.y);
+      const width = right - left;
+      const height = bottom - top;
+
+      const norm = [left, top, width, height].map((n) => Number(n.toFixed(4)));
+      coordsOutput.textContent = JSON.stringify(norm);
+      copyButton.disabled = false;
+    }
+
+    function renderOverlay() {
+      overlay.innerHTML = '';
+      if (!imgEl) return;
+      if (firstPoint) {
+        const marker = document.createElement('div');
+        marker.className = 'point';
+        marker.style.left = `${firstPoint.x * 100}%`;
+        marker.style.top = `${firstPoint.y * 100}%`;
+        overlay.appendChild(marker);
+      }
+      if (secondPoint) {
+        const marker = document.createElement('div');
+        marker.className = 'point';
+        marker.style.left = `${secondPoint.x * 100}%`;
+        marker.style.top = `${secondPoint.y * 100}%`;
+        overlay.appendChild(marker);
+      }
+      if (firstPoint && secondPoint) {
+        const left = Math.min(firstPoint.x, secondPoint.x);
+        const top = Math.min(firstPoint.y, secondPoint.y);
+        const width = Math.abs(firstPoint.x - secondPoint.x);
+        const height = Math.abs(firstPoint.y - secondPoint.y);
+        const rect = document.createElement('div');
+        rect.className = 'rect';
+        rect.style.left = `${left * 100}%`;
+        rect.style.top = `${top * 100}%`;
+        rect.style.width = `${width * 100}%`;
+        rect.style.height = `${height * 100}%`;
+        overlay.appendChild(rect);
+      }
+    }
+
+    function resetSelection() {
+      firstPoint = null;
+      secondPoint = null;
+      renderOverlay();
+      updateOutput();
+      resetButton.disabled = true;
+      copyButton.disabled = true;
+      setStatus('Click the top-left corner of the field area.');
+    }
+
+    function onImageClick(event) {
+      if (!imgEl) return;
+      const rect = imgEl.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width;
+      const y = (event.clientY - rect.top) / rect.height;
+      if (x < 0 || x > 1 || y < 0 || y > 1) return;
+
+      const point = { x, y };
+      if (!firstPoint) {
+        firstPoint = point;
+        setStatus('Now click the bottom-right corner of the field area.');
+      } else if (!secondPoint) {
+        secondPoint = point;
+        setStatus('Selection complete. Use Copy coords to copy the normalized rectangle.');
+      } else {
+        firstPoint = point;
+        secondPoint = null;
+        setStatus('Top-left saved. Now click the bottom-right corner.');
+      }
+      renderOverlay();
+      updateOutput();
+      resetButton.disabled = false;
+    }
+
+    imageInput.addEventListener('change', (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      overlay.innerHTML = '';
+      firstPoint = null;
+      secondPoint = null;
+      resetButton.disabled = true;
+      copyButton.disabled = true;
+      coordsOutput.textContent = 'No selection yet.';
+      setStatus('Click the top-left corner of the field area.');
+
+      const img = document.createElement('img');
+      img.alt = file.name;
+      img.src = url;
+      img.style.maxWidth = '100%';
+      img.style.height = 'auto';
+      img.addEventListener('load', () => {
+        if (!previewArea.contains(img)) {
+          previewArea.innerHTML = '';
+          previewArea.appendChild(img);
+          previewArea.appendChild(overlay);
+        }
+        imgEl = img;
+      });
+
+      if (previewArea.firstChild) {
+        previewArea.removeChild(previewArea.firstChild);
+      }
+      previewArea.appendChild(img);
+      previewArea.appendChild(overlay);
+      img.addEventListener('click', onImageClick);
+    });
+
+    resetButton.addEventListener('click', resetSelection);
+    copyButton.addEventListener('click', () => {
+      navigator.clipboard.writeText(coordsOutput.textContent || '');
+      setStatus('Coordinates copied to clipboard.');
+    });
+  </script>
+</body>
+
+</html>
